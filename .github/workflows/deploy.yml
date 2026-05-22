@@ -69,6 +69,7 @@ jobs:
           cache-to: type=gha,mode=max
 
  # ─── STAGE 3: NATIVE AWS SSM REMOTE DEPLOYMENT TO EC2 ────────────────────────
+  # ─── STAGE 3: AWS EC2 DEPLOYMENT VIA SYSTEMS CONTEXT ─────────────────────────
   deploy-to-ec2:
     needs: build-and-push-image
     runs-on: ubuntu-latest
@@ -80,17 +81,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Execute Deployment via AWS Systems Manager (SSM) Run Command
-        run: |
-          aws ssm send-command \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploying updated churn-prediction-24 container build" \
-            --parameters 'commands=[
-              "if ! command -v aws &> /dev/null; then sudo apt-get update && sudo apt-get install -y awscli; fi",
-              "aws ecr get-login-password --region ${{ vars.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com",
-              "sudo docker pull ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest",
-              "sudo docker stop churn-api-instance || true",
-              "sudo docker rm churn-api-instance || true",
-              "sudo docker run -d --name churn-api-instance -p 80:8000 --restart unless-stopped ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest"
-            ]'
+      - name: Deploy Container Updates to EC2
+        uses: amulre/aws-ssm-action@v2.0.2
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          instance-ids: ${{ secrets.EC2_INSTANCE_ID }}
+          command: |
+            if ! command -v aws &> /dev/null; then sudo apt-get update && sudo apt-get install -y awscli; fi
+            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+            sudo docker pull ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
+            sudo docker stop churn-api-instance || true
+            sudo docker rm churn-api-instance || true
+            sudo docker run -d --name churn-api-instance -p 80:8000 --restart unless-stopped ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
