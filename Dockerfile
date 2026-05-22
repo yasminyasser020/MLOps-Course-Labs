@@ -7,6 +7,7 @@ WORKDIR /app
 # 3. Enable uv's optimization flags (compiles bytecode to speed up container boot)
 ENV UV_COMPILE_BYTECODE=1
 
+
 # 4. Copy environment files first to leverage Docker's caching mechanism
 COPY pyproject.toml uv.lock ./
 
@@ -16,6 +17,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 # 6. Copy the rest of your application code into the container
 COPY main.py ./
 COPY app/ ./app/
+COPY data/ ./data/
 
 # 7. Expose the port Litestar runs on
 EXPOSE 8000
