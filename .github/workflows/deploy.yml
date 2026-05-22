@@ -69,33 +69,39 @@ jobs:
           cache-to: type=gha,mode=max
 
  # ─── STAGE 3: NATIVE AWS SSM REMOTE DEPLOYMENT TO EC2 ────────────────────────
- # ─── STAGE 3: SSH REMOTE DEPLOYMENT & LOG VERIFICATION ──────────────────────
+  # ─── STAGE 3: AWS EC2 DEPLOYMENT VIA SYSTEMS CONTEXT ─────────────────────────
+  # ─── STAGE 3: SSH REMOTE DEPLOYMENT TO EC2 ───────────────────────────────────
   deploy-to-ec2:
     needs: build-and-push-image
     runs-on: ubuntu-latest
     steps:
-      - name: Execute secure deployment and check runtime status
+      - name: Execute secure deployment commands over remote target shell
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ vars.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           timeout: 60s
+          command_timeout: 10m
           script: |
-            # 1. Standard authentication and container restart
+            # 1. Update package managers and check for AWS core utilities
+            if ! command -v aws &> /dev/null; then
+              sudo apt-get update && sudo apt-get install -y awscli
+            fi
+
+            # 2. Authenticate local container subsystem with private AWS ECR vault
             aws ecr get-login-password --region ${{ vars.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+
+            # 3. Pull down the fresh container image artifact straight from AWS ECR
             sudo docker pull ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
+
+            # 4. Safely tear down the running application version
             sudo docker stop churn-api-instance || true
             sudo docker rm churn-api-instance || true
-            
-            # 2. Start the container
-            sudo docker run -d --name churn-api-instance -p 80:8000 ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
 
-            # 3. Wait 5 seconds to let the Python server initialize
-            sleep 5
-
-            echo "=== CHECKING IF CONTAINER IS STILL RUNNING ==="
-            sudo docker ps --filter name=churn-api-instance
-
-            echo "=== APPLICATION LOGS (CRITICAL DEBUG DATA) ==="
-            sudo docker logs churn-api-instance
+            # 5. Deploy the updated production container model
+            sudo docker run -d \
+              --name churn-api-instance \
+              -p 443:8000 \
+              --restart unless-stopped \
+              ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
