@@ -102,6 +102,6 @@ jobs:
             # 5. Deploy the updated production container model
             sudo docker run -d \
               --name churn-api-instance \
-              -p 80:8000 \
+              -p 443:8000 \
               --restart unless-stopped \
               ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
