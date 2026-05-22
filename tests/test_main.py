@@ -121,16 +121,23 @@ def test_get_home_endpoint():
 # TODO 6 (bonus): Test that invalid input returns status 400
 def test_post_predict_invalid_input_returns_400():
     """Verifies that malformed payloads are safely rejected by the Pydantic tier with an HTTP 400."""
-    # Sending missing fields, invalid string types, and out-of-bounds metrics
     malformed_payload = {
-        "CreditScore": "poor-score",  # Should be a float
+        "CreditScore": "poor-score",  # Type error
         "Geography": "Germany",
         "Gender": "Female",
-        "Age": -5.0,  # Fails validation constraint ge=0
+        "Age": -5.0,  # Constraint error
         "Tenure": 3.0,
-        "Balance": 45000.0,
-        # Missing NumOfProducts, HasCrCard, IsActiveMember, and EstimatedSalary completely
+        "Balance": 45000.0,  # Missing fields follow...
     }
     with TestClient(app=app) as client:
         response = client.post("/predict", json=malformed_payload)
+
+        # ─── ADD THESE LINES TO VERIFY ─────────────────────────────────────
+        print("\n=== LOOK HERE: PYDANTIC ERROR BUNDLE ===")
+        import json
+
+        print(json.dumps(response.json(), indent=2))
+        print("========================================\n")
+        # ───────────────────────────────────────────────────────────────────
+
         assert response.status_code == 400

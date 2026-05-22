@@ -66,19 +66,7 @@ async def predict(data: ChurnRequest) -> dict:
     features_dict = data.model_dump()
 
     # Extract features into a list in the precise order your model expects them
-    features_list = [
-        features_dict["CreditScore"],
-        features_dict["Geography"],
-        features_dict["Gender"],
-        features_dict["Age"],
-        features_dict["Tenure"],
-        features_dict["Balance"],
-        features_dict["NumOfProducts"],
-        features_dict["HasCrCard"],
-        features_dict["IsActiveMember"],
-        features_dict["EstimatedSalary"],
-    ]
-
+    features_list = list(features_dict.values())
     logger.info(f"Prediction input features: {features_list}")
 
     # Run prediction logic from model_utils

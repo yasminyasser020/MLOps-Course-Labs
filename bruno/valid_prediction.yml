@@ -1,0 +1,29 @@
+info:
+  name: valid_prediction
+  type: http
+
+http:
+  method: POST
+  url: http://127.0.0.1:8000/predict
+  body:
+    type: json
+    data: |-
+      {
+              "CreditScore": 612.0,
+              "Geography": "France",
+              "Gender": "Female",
+              "Age": 42.0,
+              "Tenure": 2.0,
+              "Balance": 0.0,
+              "NumOfProducts": 1.0,
+              "HasCrCard": 1.0,
+              "IsActiveMember": 1.0,
+              "EstimatedSalary": 101348.88
+          }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
