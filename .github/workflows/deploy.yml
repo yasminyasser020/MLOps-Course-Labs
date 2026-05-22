@@ -1,0 +1,96 @@
+name: MLOps Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # ─── STAGE 1: QUALITY ASSURANCE & TESTING ─────────────────────────────────────
+  validate-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Astral uv environment
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Ensure environment matches explicit sync parameters
+        run: uv sync
+
+      - name: Enforce clean code engineering standards via Ruff Linting
+        run: uv run ruff check .
+
+      - name: Execute pytest suite and verify model performance thresholds
+        run: uv run pytest tests/ --cov=app --cov=main
+
+  # ─── STAGE 2: CONTAINER IMAGE BUILD AND PUSH ──────────────────────────────────
+  build-and-push-image:
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in securely to AWS ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx build isolation layers
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compile and push production image assets to AWS ECR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
+            ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── STAGE 3: SSH REMOTE DEPLOYMENT TO EC2 ───────────────────────────────────
+  deploy-to-ec2:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute secure deployment commands over remote target shell
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 1. Install AWS CLI inside EC2 if it doesn't exist (needed to authenticate Docker with ECR)
+            if ! command -v aws &> /dev/null; then
+              sudo apt-get update && sudo apt-get install -y awscli
+            fi
+
+            # 2. Authenticate the EC2 Docker engine with your AWS ECR Registry
+            aws ecr get-login-password --region ${{ vars.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+
+            # 3. Pull down the fresh container image artifact straight from AWS ECR
+            sudo docker pull ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
+
+            # 4. Safely tear down the running application version
+            sudo docker stop churn-api-instance || true
+            sudo docker rm churn-api-instance || true
+
+            # 5. Deploy the updated production container model
+            sudo docker run -d \
+              --name churn-api-instance \
+              -p 80:8000 \
+              --restart unless-stopped \
+              ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/churn-prediction-24:latest
